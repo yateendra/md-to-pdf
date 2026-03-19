@@ -401,10 +401,10 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
           doc.line(margin, y, pageWidth - margin, y);
           y += token.depth === 1 ? 12 : 10; // More space after H1 underline
         } else {
-          y += 4;
+          y += 6; // Space after H3-H6
         }
         
-        y += token.depth === 1 ? 4 : 8; // Less space after H1, normal for others
+        y += token.depth === 1 ? 4 : token.depth === 2 ? 8 : 10; // H1: 4pt, H2: 8pt, H3+: 10pt
         break;
       }
 
