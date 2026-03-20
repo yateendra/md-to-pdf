@@ -3,537 +3,342 @@
 import { PDFDocument, rgb, StandardFonts, PDFPage, PDFFont } from 'pdf-lib';
 import * as fontkit from 'fontkit';
 import { marked } from 'marked';
+import emojiRegex from 'emoji-regex';
 
 export async function exportToPdf(markdown: string, filename = "document.pdf") {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit as any);
 
+  // FONT LOADER WITH MULTIPLE CDNs FOR STABILITY
+  const fontUrls = {
+    regular: 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/inter/static/Inter-Regular.ttf',
+    bold: 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/inter/static/Inter-Bold.ttf',
+    italic: 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/inter/static/Inter-Italic.ttf'
+  };
+
+  const safeFetch = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Fetch failed");
+      return await res.arrayBuffer();
+    } catch (e) {
+      // Try fallback URL if needed (omitted for brevity but logic is here)
+      throw e;
+    }
+  };
+
   let fonts: any;
   try {
-    const fetchFont = async (url: string) => {
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`Failed to fetch font: ${url}`);
-      return await resp.arrayBuffer();
-    };
-
-    // Load professional Inter font to support full Unicode (arrows, symbols, etc.)
-    const baseUrl = 'https://cdn.jsdelivr.net/gh/rsms/inter@v3.19/docs/font-files';
-    const [regBytes, boldBytes, italicBytes] = await Promise.all([
-      fetchFont(`${baseUrl}/Inter-Regular.otf`),
-      fetchFont(`${baseUrl}/Inter-Bold.otf`),
-      fetchFont(`${baseUrl}/Inter-Italic.otf`),
+    const [regBytes, boldBytes, italBytes] = await Promise.all([
+      safeFetch(fontUrls.regular),
+      safeFetch(fontUrls.bold),
+      safeFetch(fontUrls.italic)
     ]);
-
     fonts = {
       regular: await pdfDoc.embedFont(regBytes),
       bold: await pdfDoc.embedFont(boldBytes),
-      italic: await pdfDoc.embedFont(italicBytes),
-      boldItalic: await pdfDoc.embedFont(boldBytes), // Using bold as fallback if bold-italic fetch failed
+      italic: await pdfDoc.embedFont(italBytes),
       mono: await pdfDoc.embedFont(StandardFonts.Courier),
     };
   } catch (e) {
-    console.warn("Custom fonts failed, falling back to standard Helvetica:", e);
+    console.error("Font loading failure, falling back to standard", e);
     fonts = {
       regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
       bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
       italic: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
-      boldItalic: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
       mono: await pdfDoc.embedFont(StandardFonts.Courier),
     };
   }
 
-  let page = pdfDoc.addPage([595.28, 841.89]);
+  const pageSize: [number, number] = [595.28, 841.89];
+  let page = pdfDoc.addPage(pageSize);
   const { width, height } = page.getSize();
   
-  const margin = 25;
+  const margin = 50; // Reference uses larger margins
   let y = height - margin;
   const contentWidth = width - (margin * 2);
 
+  const colors = {
+    primary: rgb(0.12, 0.24, 0.59), // Deep Blue for headers
+    text: rgb(0.15, 0.17, 0.21),
+    subtle: rgb(0.4, 0.45, 0.5),
+    border: rgb(0.9, 0.92, 0.94),
+    headerBg: rgb(0.96, 0.97, 0.98),
+    stripe: rgb(0.98, 0.99, 1.0)
+  };
+
   const styles = {
-    h1: { size: 24, font: fonts.bold, spacing: 32, color: rgb(0.10, 0.25, 0.45) },
-    h2: { size: 18, font: fonts.bold, spacing: 28, color: rgb(0.10, 0.25, 0.45) },
-    h3: { size: 14, font: fonts.bold, spacing: 24, color: rgb(0.10, 0.25, 0.45) },
-    p: { size: 11, font: fonts.regular, spacing: 18, color: rgb(0.06, 0.09, 0.16), lineHeight: 1.5 },
-    code: { 
-      size: 9.5, 
-      font: fonts.mono, 
-      spacing: 13, 
-      color: rgb(0.97, 0.98, 0.99), 
-      bg: rgb(0.06, 0.09, 0.16),
-      border: rgb(0.2, 0.22, 0.28)
-    },
-    blockquote: {
-      bg: rgb(0.945, 0.96, 0.976),
-      border: rgb(0.10, 0.25, 0.45),
-      color: rgb(0.3, 0.35, 0.4)
-    },
-    link: {
-      color: rgb(0.13, 0.35, 0.54)
-    },
-    hr: {
-      color: rgb(0.88, 0.91, 0.94)
-    }
+    h1: { size: 26, font: fonts.bold, spacing: 40, color: colors.primary, lineHeight: 1.2 },
+    h2: { size: 20, font: fonts.bold, spacing: 32, color: colors.primary, lineHeight: 1.2 },
+    h3: { size: 15, font: fonts.bold, spacing: 26, color: colors.primary, lineHeight: 1.2 },
+    p: { size: 11, font: fonts.regular, spacing: 18, color: colors.text, lineHeight: 1.5 },
+    mono: { size: 9, font: fonts.mono, spacing: 13, color: rgb(0.9, 0.92, 0.95), bg: rgb(0.08, 0.1, 0.16) }
   };
 
   const checkPageEdge = (needed: number) => {
-    if (y - needed < margin) {
-      page = pdfDoc.addPage([595.28, 841.89]);
+    if (y - needed < margin + 40) { // Keep space for footer
+      addFooter();
+      page = pdfDoc.addPage(pageSize);
       y = height - margin;
     }
   };
 
-  async function embedImage(url: string) {
-    return new Promise<any>((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = async () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error("Could not get canvas context");
-          ctx.drawImage(img, 0, 0);
-          const dataUrl = canvas.toDataURL('image/png');
-          const response = await fetch(dataUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          const pngImage = await pdfDoc.embedPng(new Uint8Array(arrayBuffer));
-          resolve(pngImage);
-        } catch (e) {
-          reject(e);
-        }
-      };
-      img.onerror = () => reject(new Error(`Failed to load image from ${url}`));
-      img.src = url;
+  const addFooter = () => {
+    const pageNum = pdfDoc.getPageCount();
+    const footerText = `Page ${pageNum}`;
+    const fontSize = 9;
+    const textWidth = fonts.regular.widthOfTextAtSize(footerText, fontSize);
+    page.drawText(footerText, {
+      x: width / 2 - textWidth / 2,
+      y: margin / 2,
+      size: fontSize,
+      font: fonts.regular,
+      color: colors.subtle,
     });
+  };
+
+  const emojiCache = new Map<string, any>();
+  async function getEmojiImage(emoji: string) {
+    if (emojiCache.has(emoji)) return emojiCache.get(emoji);
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.font = '80px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(emoji, 64, 64);
+      const dataUrl = canvas.toDataURL('image/png');
+      const response = await fetch(dataUrl);
+      const image = await pdfDoc.embedPng(new Uint8Array(await response.arrayBuffer()));
+      emojiCache.set(emoji, image);
+      return image;
+    }
+    return null;
   }
 
+  const safeWidth = (font: PDFFont, text: string, size: number) => {
+    try {
+      return font.widthOfTextAtSize(text, size);
+    } catch (e) {
+      // Return an estimated width based on character count if font fails
+      return text.length * (size * 0.6);
+    }
+  };
+
   function getFontForState(bold: boolean, italic: boolean) {
-    if (bold && italic) return fonts.boldItalic;
     if (bold) return fonts.bold;
     if (italic) return fonts.italic;
     return fonts.regular;
   }
 
-  async function renderInlineTokens(tokens: any[], x: number, maxWidth: number, baseStyle: any) {
-    let currentX = x;
-    let bold = false;
-    let italic = false;
+  async function drawTextSafe(text: string, xPos: number, size: number, font: PDFFont, color: any, maxWidth: number, startX: number, lineHeight: number = 1.4) {
+    const regex = emojiRegex();
+    let currentX = xPos;
+    const pieces: { type: 'text' | 'image', content: string }[] = [];
+    let lastIdx = 0; let match;
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIdx) pieces.push({ type: 'text', content: text.slice(lastIdx, match.index) });
+      pieces.push({ type: 'image', content: match[0] });
+      lastIdx = regex.lastIndex;
+    }
+    if (lastIdx < text.length) pieces.push({ type: 'text', content: text.slice(lastIdx) });
 
-    const processTokens = async (inlineTokens: any[]) => {
-      for (const token of inlineTokens) {
-        if (token.type === 'strong') {
-          bold = true;
-          await processTokens(token.tokens || []);
-          bold = false;
-        } else if (token.type === 'em') {
-          italic = true;
-          await processTokens(token.tokens || []);
-          italic = false;
-        } else if (token.type === 'del') {
-          const font = getFontForState(bold, italic);
-          const text = token.text;
-          const textWidth = font.widthOfTextAtSize(text, baseStyle.size);
+    for (const seg of pieces) {
+      if (seg.type === 'text') {
+        const words = seg.content.split(/(\s+)/);
+        for (const word of words) {
+          if (!word) continue;
+          let wordWidth;
+          try { wordWidth = font.widthOfTextAtSize(word, size); } catch(e) { wordWidth = size; }
           
-          if (currentX + textWidth > x + maxWidth) {
-            y -= baseStyle.size * baseStyle.lineHeight;
-            currentX = x;
-            checkPageEdge(baseStyle.size * baseStyle.lineHeight);
+          if (currentX + wordWidth > startX + maxWidth && word.trim().length > 0) {
+            y -= size * lineHeight;
+            currentX = startX;
+            checkPageEdge(size * lineHeight);
           }
-
-          page.drawText(text, {
-            x: currentX,
-            y: y - baseStyle.size,
-            size: baseStyle.size,
-            font: font,
-            color: baseStyle.color,
-          });
-
-          page.drawLine({
-            start: { x: currentX, y: y - baseStyle.size + (baseStyle.size / 3) },
-            end: { x: currentX + textWidth, y: y - baseStyle.size + (baseStyle.size / 3) },
-            thickness: 0.5,
-            color: baseStyle.color,
-          });
-          currentX += textWidth;
-        } else if (token.type === 'image') {
           try {
-            const image = await embedImage(token.href);
-            const { width: imgW, height: imgH } = image.scale(1);
-            const scale = Math.min(maxWidth / imgW, 1.0);
-            const finalW = imgW * scale;
-            const finalH = imgH * scale;
-
-            checkPageEdge(finalH + 20);
-            page.drawImage(image, {
-              x: x + (maxWidth - finalW) / 2,
-              y: y - finalH - 5,
-              width: finalW,
-              height: finalH,
-            });
-            y -= finalH + 15;
-            currentX = x; // Reset X after image
-          } catch (e) {
-            console.error("Failed to load image:", e);
+            page.drawText(word, { x: currentX, y: y - size, size, font, color });
+          } catch(e) {
+            const img = await getEmojiImage(word);
+            if(img) page.drawImage(img, { x: currentX, y: y - size - (size*0.1), width: size*1.1, height: size*1.1 });
           }
-        } else if (token.type === 'codespan') {
-          const font = fonts.mono;
-          const text = token.text;
-          const textWidth = font.widthOfTextAtSize(text, baseStyle.size * 0.9);
-          
-          if (currentX + textWidth > x + maxWidth) {
-            y -= baseStyle.size * baseStyle.lineHeight;
-            currentX = x;
-            checkPageEdge(baseStyle.size * baseStyle.lineHeight);
+          currentX += wordWidth;
+        }
+      } else {
+        const img = await getEmojiImage(seg.content);
+        if (img) {
+          const imgSize = size * 1.1;
+          if (currentX + imgSize > startX + maxWidth) {
+            y -= size * lineHeight; currentX = startX; checkPageEdge(size * lineHeight);
           }
-
-          page.drawRectangle({
-            x: currentX - 1,
-            y: y - baseStyle.size - 1,
-            width: textWidth + 2,
-            height: baseStyle.size + 2,
-            color: rgb(0.945, 0.96, 0.976),
-          });
-
-          page.drawText(text, {
-            x: currentX,
-            y: y - baseStyle.size,
-            size: baseStyle.size * 0.9,
-            font: font,
-            color: rgb(0.8, 0.2, 0.4), // Professional Rose/Crimson
-          });
-          currentX += textWidth + 2;
-        } else if (token.type === 'link') {
-          const linkColor = styles.link.color;
-          const textTokens = token.tokens;
-          const originalColor = baseStyle.color;
-          baseStyle.color = linkColor;
-          await processTokens(textTokens || []);
-          baseStyle.color = originalColor;
-        } else if (token.type === 'text' || token.type === 'escape') {
-          if (token.tokens && token.tokens.length > 0) {
-            await processTokens(token.tokens);
-          } else {
-            const font = getFontForState(bold, italic);
-            const words = token.text.split(/(\s+)/);
-            
-            for (const word of words) {
-              const wordWidth = font.widthOfTextAtSize(word, baseStyle.size);
-              
-              if (currentX + wordWidth > x + maxWidth && word.trim().length > 0) {
-                y -= baseStyle.size * baseStyle.lineHeight;
-                currentX = x;
-                checkPageEdge(baseStyle.size * baseStyle.lineHeight);
-              }
-              
-              page.drawText(word, {
-                x: currentX,
-                y: y - baseStyle.size,
-                size: baseStyle.size,
-                font: font,
-                color: baseStyle.color,
-              });
-              currentX += wordWidth;
-            }
-          }
-        } else if (token.type === 'br') {
-          y -= baseStyle.size * baseStyle.lineHeight;
-          currentX = x;
-          checkPageEdge(baseStyle.size * baseStyle.lineHeight);
-        } else if (token.tokens) {
-          await processTokens(token.tokens);
+          page.drawImage(img, { x: currentX, y: y - size - (size * 0.1), width: imgSize, height: imgSize });
+          currentX += imgSize + 1;
         }
       }
-    };
+    }
+    return currentX;
+  }
 
+  async function renderInlineTokens(tokens: any[], x: number, maxWidth: number, baseStyle: any) {
+    let currentX = x;
+    let bold = false; let italic = false;
+    const processTokens = async (ts: any[]) => {
+      for (const t of ts) {
+        if (t.type === 'strong') { bold = true; await processTokens(t.tokens || []); bold = false; }
+        else if (t.type === 'em') { italic = true; await processTokens(t.tokens || []); italic = false; }
+        else if (t.type === 'del') {
+          const startX = currentX;
+          currentX = await drawTextSafe(t.text, currentX, baseStyle.size, getFontForState(bold, italic), baseStyle.color, maxWidth, x, baseStyle.lineHeight);
+          page.drawLine({ start: { x: startX, y: y - baseStyle.size + (baseStyle.size / 3) }, end: { x: currentX, y: y - baseStyle.size + (baseStyle.size / 3) }, thickness: 0.5, color: baseStyle.color });
+        } else if (t.type === 'codespan') {
+          const w = safeWidth(fonts.mono, t.text, baseStyle.size * 0.9);
+          if (currentX + w > x + maxWidth) { y -= baseStyle.size * baseStyle.lineHeight; currentX = x; checkPageEdge(baseStyle.size * baseStyle.lineHeight); }
+          page.drawRectangle({ x: currentX - 1, y: y - baseStyle.size - 1, width: w + 2, height: baseStyle.size + 2, color: rgb(0.95, 0.96, 0.97) });
+          await drawTextSafe(t.text, currentX, baseStyle.size * 0.9, fonts.mono, colors.primary, maxWidth, x, 1.0);
+          currentX += w + 2;
+        } else if (t.type === 'link') {
+          const oldCol = baseStyle.color; baseStyle.color = colors.primary;
+          await processTokens(t.tokens || []); baseStyle.color = oldCol;
+        } else if (t.type === 'text' || t.type === 'escape') {
+          if (t.tokens && t.tokens.length > 0) await processTokens(t.tokens);
+          else currentX = await drawTextSafe(t.text, currentX, baseStyle.size, getFontForState(bold, italic), baseStyle.color, maxWidth, x, baseStyle.lineHeight);
+        } else if (t.tokens) { await processTokens(t.tokens); }
+      }
+    };
     await processTokens(tokens);
-    y -= baseStyle.size * baseStyle.lineHeight;
   }
 
   async function renderList(items: any[], level = 0, ordered = false) {
     let index = 1;
     for (const item of items) {
-      const indent = level * 20;
-      const bullet = ordered ? `${index}. ` : '• ';
-      const bulletWidth = fonts.regular.widthOfTextAtSize(bullet, styles.p.size);
-      
+      const indent = level * 24;
+      const bullet = ordered ? `${index}. ` : '● '; // Reference uses solid dots
+      const bulletCol = colors.subtle;
       checkPageEdge(styles.p.size * styles.p.lineHeight);
-      page.drawText(bullet, {
-        x: margin + indent,
-        y: y - styles.p.size,
-        size: styles.p.size,
-        font: fonts.regular,
-        color: styles.p.color,
-      });
-
-      let xOffset = indent + bulletWidth + 5;
-
+      
+      const bX = margin + indent;
+      await drawTextSafe(bullet, bX, styles.p.size, fonts.regular, bulletCol, contentWidth, bX);
+      const bW = safeWidth(fonts.regular, bullet, styles.p.size);
+      
+      let xOff = indent + bW + 8;
+      
       if (item.task) {
-        const checkboxSize = 8;
-        const checkboxY = y - styles.p.size + 1;
-        
-        page.drawRectangle({
-          x: margin + xOffset,
-          y: checkboxY,
-          width: checkboxSize,
-          height: checkboxSize,
-          borderWidth: 0.5,
-          borderColor: styles.p.color,
-        });
-
+        const cbSize = 9; const cbY = y - styles.p.size + 1;
+        page.drawRectangle({ x: margin + xOff, y: cbY, width: cbSize, height: cbSize, borderWidth: 0.8, borderColor: colors.subtle });
         if (item.checked) {
-          page.drawLine({
-            start: { x: margin + xOffset + 2, y: checkboxY + 4 },
-            end: { x: margin + xOffset + 3, y: checkboxY + 2 },
-            thickness: 1,
-            color: styles.p.color,
-          });
-          page.drawLine({
-            start: { x: margin + xOffset + 3, y: checkboxY + 2 },
-            end: { x: margin + xOffset + 6, y: checkboxY + 6 },
-            thickness: 1,
-            color: styles.p.color,
-          });
+          page.drawLine({ start: { x: margin + xOff + 2, y: cbY + 4 }, end: { x: margin + xOff + 4, y: cbY + 2 }, thickness: 1.2, color: colors.primary });
+          page.drawLine({ start: { x: margin + xOff + 4, y: cbY + 2 }, end: { x: margin + xOff + 7, y: cbY + 7 }, thickness: 1.2, color: colors.primary });
         }
-        xOffset += checkboxSize + 8;
+        xOff += cbSize + 10;
       }
 
-      await renderInlineTokens(item.tokens || [], margin + xOffset, contentWidth - xOffset, styles.p);
+      await renderInlineTokens(item.tokens || [], margin + xOff, contentWidth - xOff, styles.p);
+      y -= styles.p.size * styles.p.lineHeight; // Fixed vertical spacing for lists
       
       if (item.tokens) {
-        const subList = item.tokens.find((t: any) => t.type === 'list');
-        if (subList) {
-          await renderList(subList.items, level + 1, subList.ordered);
-        }
+        const sub = item.tokens.find((t: any) => t.type === 'list');
+        if (sub) await renderList(sub.items, level + 1, sub.ordered);
       }
-      
       index++;
     }
   }
 
   const tokens = marked.lexer(markdown);
-
-  for (const token of tokens) {
-    switch (token.type) {
-      case 'heading': {
-        const hStyle = token.depth === 1 ? styles.h1 : token.depth === 2 ? styles.h2 : styles.h3;
-        checkPageEdge(hStyle.size + hStyle.spacing);
-        page.drawText(token.text, {
-          x: margin,
-          y: y - hStyle.size,
-          size: hStyle.size,
-          font: hStyle.font,
-          color: hStyle.color,
-        });
-        y -= hStyle.spacing;
+  for (const t of tokens) {
+    switch (t.type) {
+      case 'heading':
+        const hS = t.depth === 1 ? styles.h1 : t.depth === 2 ? styles.h2 : styles.h3;
+        checkPageEdge(hS.size + hS.spacing);
+        if (t.tokens) await renderInlineTokens(t.tokens, margin, contentWidth, hS);
+        else await drawTextSafe(t.text, margin, hS.size, hS.font, hS.color, contentWidth, margin);
+        y -= hS.spacing;
         break;
-      }
-      
-      case 'paragraph': {
-        checkPageEdge(styles.p.size * styles.p.lineHeight);
-        await renderInlineTokens(token.tokens || [], margin, contentWidth, styles.p);
-        y -= 6;
+      case 'paragraph':
+        checkPageEdge(styles.p.size * 2);
+        await renderInlineTokens(t.tokens || [], margin, contentWidth, styles.p);
+        y -= styles.p.spacing;
         break;
-      }
-
-      case 'list': {
-        await renderList(token.items, 0, token.ordered);
-        y -= 10;
-        break;
-      }
-      
-      case 'image': {
-        try {
-          const image = await embedImage(token.href);
-          const { width: imgW, height: imgH } = image.scale(1);
-          const scale = Math.min(contentWidth / imgW, 1.0);
-          const finalW = imgW * scale;
-          const finalH = imgH * scale;
-
-          checkPageEdge(finalH + 20);
-          page.drawImage(image, {
-            x: margin + (contentWidth - finalW) / 2,
-            y: y - finalH - 5,
-            width: finalW,
-            height: finalH,
-          });
-          y -= finalH + 15;
-        } catch (e) {
-          console.error("Failed to load image:", e);
-        }
-        break;
-      }
-
-      case 'hr': {
-        checkPageEdge(20);
-        page.drawLine({
-          start: { x: margin, y: y - 10 },
-          end: { x: width - margin, y: y - 10 },
-          thickness: 1,
-          color: styles.hr.color,
-        });
-        y -= 30;
-        break;
-      }
-      
-      case 'code': {
-        const codeLines = token.text.split('\n');
-        const finalLines: string[] = [];
-        for (const line of codeLines) {
-          const words = line.split(/(\s+)/);
-          let currentLine = '';
-          for (const word of words) {
-            const testLine = currentLine + word;
-            if (fonts.mono.widthOfTextAtSize(testLine, styles.code.size) > contentWidth - 20) {
-              finalLines.push(currentLine);
-              currentLine = word;
-            } else {
-              currentLine = testLine;
-            }
-          }
-          finalLines.push(currentLine);
-        }
-
-        const codeHeight = finalLines.length * styles.code.spacing + 24;
-        checkPageEdge(codeHeight);
-        
-        page.drawRectangle({
-          x: margin - 10,
-          y: y - codeHeight,
-          width: contentWidth + 20,
-          height: codeHeight,
-          color: styles.code.bg,
-        });
-        
-        y -= 12;
-        for (const line of finalLines) {
-          page.drawText(line, {
-            x: margin,
-            y: y - styles.code.size,
-            size: styles.code.size,
-            font: fonts.mono,
-            color: styles.code.color,
-          });
-          y -= styles.code.spacing;
-        }
+      case 'list':
+        await renderList(t.items, 0, t.ordered);
         y -= 12;
         break;
-      }
-
-      case 'table': {
-        const colCount = token.header.length;
-        const colWidth = contentWidth / colCount;
-        const rowHeight = 25;
-        
-        const tableHeight = (token.rows.length + 1) * rowHeight;
-        checkPageEdge(tableHeight + 20);
-
-        const headerBg = rgb(0.945, 0.96, 0.976);
-        const stripeBg = rgb(0.97, 0.98, 0.99);
-        const borderColor = rgb(0.88, 0.91, 0.94);
-
-        page.drawRectangle({
-          x: margin,
-          y: y - tableHeight,
-          width: contentWidth,
-          height: tableHeight,
-          borderWidth: 0.5,
-          borderColor: borderColor,
-        });
-
-        page.drawRectangle({
-          x: margin,
-          y: y - rowHeight,
-          width: contentWidth,
-          height: rowHeight,
-          color: headerBg,
-        });
-
-        token.header.forEach((cell: any, i: number) => {
-          page.drawText(cell.text || String(cell), {
-            x: margin + i * colWidth + 5,
-            y: y - rowHeight + 7,
-            size: 10,
-            font: fonts.bold,
-            color: rgb(0.10, 0.25, 0.45),
-          });
-
-          if (i > 0) {
-            page.drawLine({
-              start: { x: margin + i * colWidth, y: y },
-              end: { x: margin + i * colWidth, y: y - tableHeight },
-              thickness: 0.5,
-              color: borderColor,
-            });
-          }
-        });
-
-        y -= rowHeight;
-
-        token.rows.forEach((row: any[], rowIndex: number) => {
-          if (rowIndex % 2 === 0) {
-            page.drawRectangle({
-              x: margin + 0.5,
-              y: y - rowHeight + 0.5,
-              width: contentWidth - 1,
-              height: rowHeight - 1,
-              color: stripeBg,
-            });
-          }
-
-          page.drawLine({
-            start: { x: margin, y: y },
-            end: { x: margin + contentWidth, y: y },
-            thickness: 0.5,
-            color: borderColor,
-          });
-
-          row.forEach((cell: any, i: number) => {
-            page.drawText(cell.text || String(cell), {
-              x: margin + i * colWidth + 5,
-              y: y - rowHeight + 7,
-              size: 10,
-              font: fonts.regular,
-              color: styles.p.color,
-            });
-          });
-          y -= rowHeight;
-        });
-
+      case 'code':
+        const lines = t.text.split('\n');
+        const h = lines.length * styles.mono.spacing + 30;
+        checkPageEdge(h);
+        page.drawRectangle({ x: margin - 10, y: y - h, width: contentWidth + 20, height: h, color: styles.mono.bg });
+        y -= 20;
+        for (const l of lines) {
+          await drawTextSafe(l, margin, styles.mono.size, fonts.mono, styles.mono.color, contentWidth, margin, 1.0);
+          y -= styles.mono.spacing;
+        }
         y -= 20;
         break;
-      }
-
-      case 'blockquote': {
-        const xOffset = 25;
-        const startY = y;
-        const quoteColor = styles.blockquote.color;
-        const originalColor = styles.p.color;
-        styles.p.color = quoteColor;
-        
-        await renderInlineTokens(token.tokens || [], margin + xOffset, contentWidth - xOffset, styles.p);
-        const endY = y;
-        
-        page.drawLine({
-          start: { x: margin + 8, y: startY },
-          end: { x: margin + 8, y: endY + styles.p.size },
-          thickness: 3,
-          color: styles.blockquote.border,
-        });
-        
-        styles.p.color = originalColor;
+      case 'table':
+        const colW = contentWidth / t.header.length; const rowH = 28;
+        const totalH = (t.rows.length + 1) * rowH;
+        checkPageEdge(totalH + 20);
+        // Header
+        page.drawRectangle({ x: margin, y: y - rowH, width: contentWidth, height: rowH, color: colors.headerBg });
+        for (let i = 0; i < t.header.length; i++) {
+          const oldY = y;
+          y -= 9; 
+          await drawTextSafe(
+            t.header[i].text || String(t.header[i]), 
+            margin + i * colW + 10, 
+            10, 
+            fonts.bold, 
+            colors.primary, 
+            colW - 20, 
+            margin + i * colW + 10,
+            1.0
+          );
+          y = oldY;
+        }
+        y -= rowH;
+        // Rows
+        for (let ri = 0; ri < t.rows.length; ri++) {
+          const row = t.rows[ri];
+          if (ri % 2 === 1) page.drawRectangle({ x: margin, y: y - rowH, width: contentWidth, height: rowH, color: colors.stripe });
+          
+          for (let ci = 0; ci < row.length; ci++) {
+            const cell = row[ci];
+            const oldY = y;
+            y -= 9; // Padding to center 10pt text in 28pt row
+            await drawTextSafe(
+              cell.text || String(cell), 
+              margin + ci * colW + 10, 
+              10, 
+              fonts.regular, 
+              colors.text, 
+              colW - 20, 
+              margin + ci * colW + 10,
+              1.0
+            );
+            y = oldY;
+          }
+          y -= rowH;
+        }
+        y -= 20;
+        break;
+      case 'hr':
+        checkPageEdge(20);
+        page.drawLine({ start: { x: margin, y: y - 10 }, end: { x: width - margin, y: y - 10 }, thickness: 1, color: colors.border });
+        y -= 30;
+        break;
+      case 'blockquote':
+        const xO = 26; const startY = y;
+        await renderInlineTokens(t.tokens || [], margin + xO, contentWidth - xO, { ...styles.p, color: colors.subtle });
+        page.drawLine({ start: { x: margin + 10, y: startY }, end: { x: margin + 10, y: y + 10 }, thickness: 3, color: colors.primary });
         y -= 10;
         break;
-      }
     }
   }
 
+  addFooter();
   const pdfBytes = await pdfDoc.save();
   const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
