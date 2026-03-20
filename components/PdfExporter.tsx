@@ -53,7 +53,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
     h1: { size: 24, font: fonts.bold, spacing: 40, color: colors.primary, lineHeight: 1.2 },
     h2: { size: 18, font: fonts.bold, spacing: 32, color: colors.primary, lineHeight: 1.2 },
     h3: { size: 14, font: fonts.bold, spacing: 26, color: colors.primary, lineHeight: 1.2 },
-    p: { size: 13, font: fonts.regular, spacing: 22, color: colors.text, lineHeight: 1.55 },
+    p: { size: 12, font: fonts.regular, spacing: 22, color: colors.text, lineHeight: 1.55 },
     mono: { size: 9, font: fonts.mono, spacing: 13, color: rgb(0.9, 0.92, 0.95), bg: rgb(0.08, 0.1, 0.16) }
   };
 
