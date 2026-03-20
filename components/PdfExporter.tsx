@@ -53,7 +53,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
     h1: { size: 24, font: fonts.bold, spacing: 40, color: colors.primary, lineHeight: 1.2 },
     h2: { size: 18, font: fonts.bold, spacing: 32, color: colors.primary, lineHeight: 1.2 },
     h3: { size: 14, font: fonts.bold, spacing: 26, color: colors.primary, lineHeight: 1.2 },
-    p: { size: 12, font: fonts.regular, spacing: 22, color: colors.text, lineHeight: 1.55 },
+    p: { size: 13, font: fonts.regular, spacing: 22, color: colors.text, lineHeight: 1.55 },
     mono: { size: 9, font: fonts.mono, spacing: 13, color: rgb(0.9, 0.92, 0.95), bg: rgb(0.08, 0.1, 0.16) }
   };
 
@@ -115,7 +115,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
   }
 
   const safeWidth = (font: PDFFont, text: string, size: number) => {
-    try { return font.widthOfTextAtSize(text, size); } 
+    try { return font.widthOfTextAtSize(text, size); }
     catch (e) { return text.length * (size * 0.6); }
   };
 
@@ -138,7 +138,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
           if (!word) continue;
           let wordWidth = safeWidth(font, word, size);
           if (currentX + wordWidth > startX + maxWidth && word.trim().length > 0) {
-            y -= size * lineHeight; currentX = startX; 
+            y -= size * lineHeight; currentX = startX;
             checkPageEdge(size * lineHeight, options.isBlockquote);
             if (options.isCodeLine) page.drawRectangle({ x: startX - 10, y: y - 5, width: maxWidth + 20, height: size * lineHeight + 5, color: styles.mono.bg });
           }
@@ -151,9 +151,9 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
               const strikeY = (y - size) + (size * 0.4);
               page.drawLine({ start: { x: currentX, y: strikeY }, end: { x: currentX + wordWidth, y: strikeY }, thickness: 0.6, color });
             }
-          } catch(e) {
+          } catch (e) {
             const img = await getEmojiImage(word);
-            if(img) {
+            if (img) {
               const eS = size;
               const emojiY = (y - size) + (size * 0.35) - (eS / 2);
               page.drawImage(img, { x: currentX, y: emojiY, width: eS, height: eS });
@@ -166,13 +166,13 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
         if (img) {
           const imgSize = size;
           if (currentX + imgSize > startX + maxWidth) {
-            y -= size * lineHeight; currentX = startX; 
+            y -= size * lineHeight; currentX = startX;
             checkPageEdge(size * lineHeight, options.isBlockquote);
             if (options.isCodeLine) page.drawRectangle({ x: startX - 10, y: y - 5, width: maxWidth + 20, height: size * lineHeight + 5, color: styles.mono.bg });
           }
           const emojiY = (y - size) + (size * 0.35) - (imgSize / 2);
           page.drawImage(img, { x: currentX, y: emojiY, width: imgSize, height: imgSize });
-          currentX += imgSize + 2; 
+          currentX += imgSize + 2;
         }
       }
     }
@@ -286,13 +286,13 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
           const oldTop = y + 5;
           activeBlockquotePage = page;
           activeBlockquoteTop = oldTop;
-          
+
           const bIndent = 26;
           await renderTokens(t.tokens || [], startX + bIndent, width - bIndent, { ...options, isBlockquote: true });
-          
+
           // Draw final line segment
           page.drawLine({ start: { x: startX + 10, y: activeBlockquoteTop }, end: { x: startX + 10, y: y + 5 }, thickness: 3, color: colors.primary });
-          
+
           activeBlockquotePage = null;
           y -= 30;
           break;
@@ -300,7 +300,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
         case 'image': await drawImageSafe(t.href, width, startX); y -= 20; break;
         case 'code': {
           const lns = t.text.split('\n');
-          const headerH = 24; 
+          const headerH = 24;
           checkPageEdge(headerH + 50, options.isBlockquote);
           const barY = y - headerH;
           page.drawRectangle({ x: startX - 10, y: barY, width: width + 20, height: headerH, color: rgb(0.12, 0.15, 0.22) });
