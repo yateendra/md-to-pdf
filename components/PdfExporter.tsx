@@ -11,10 +11,11 @@ import emojiRegex from 'emoji-regex';
 // 1. STYLES (Using only Standard PDF fonts for absolute stability)
 const styles = StyleSheet.create({
   page: { padding: 35, backgroundColor: '#ffffff', fontFamily: 'Helvetica' },
-  h1: { fontSize: 22, fontWeight: 'bold', color: '#1a1d35', marginBottom: 18, marginTop: 10, lineHeight: 1.2 },
-  h2: { fontSize: 16, fontWeight: 'bold', color: '#1a1d35', marginBottom: 14, marginTop: 8, lineHeight: 1.2 },
-  h3: { fontSize: 13, fontWeight: 'bold', color: '#1a1d35', marginBottom: 10, marginTop: 6, lineHeight: 1.2 },
-  p: { fontSize: 11.5, color: '#2c313a', marginBottom: 12, lineHeight: 1.55 },
+  h1: { fontSize: 22, fontWeight: 'bold', color: '#1a1d35', marginBottom: 12, marginTop: 10, lineHeight: 1.2 },
+  h2: { fontSize: 16, fontWeight: 'bold', color: '#1a1d35', marginBottom: 10, marginTop: 8, lineHeight: 1.2 },
+  h3: { fontSize: 13, fontWeight: 'bold', color: '#1a1d35', marginBottom: 8, marginTop: 6, lineHeight: 1.2 },
+  p: { fontSize: 11.5, color: '#2c313a', marginBottom: 8, lineHeight: 1.55 },
+  listP: { fontSize: 11.5, color: '#2c313a', marginBottom: 2, lineHeight: 1.55 },
   strong: { fontWeight: 'bold' },
   em: { fontStyle: 'italic' },
   link: { color: '#0066cc', textDecoration: 'underline' },
@@ -32,8 +33,8 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3, borderLeftColor: '#2b58d9', 
     paddingLeft: 14, marginVertical: 12, color: '#4a5568'
   },
-  list: { marginLeft: 12, marginBottom: 12 },
-  listItem: { flexDirection: 'row', marginBottom: 6 },
+  list: { marginLeft: 12, marginBottom: 8 },
+  listItem: { flexDirection: 'row', marginBottom: 2 },
   bullet: { width: 15, fontSize: 10, color: '#718096' },
   listContent: { flex: 1 },
   codeBlock: {
@@ -106,6 +107,7 @@ const MarkdownText = ({ tokens }: { tokens: any[] }) => {
         if (t.type === 'link') return <Link key={i} src={t.href} style={styles.link}><MarkdownText tokens={t.tokens || []} /></Link>;
         if (t.type === 'codespan') return <Text key={i} style={styles.codespan}>{t.text}</Text>;
         if (t.type === 'del') return <Text key={i} style={{ textDecoration: 'line-through' }}><MarkdownText tokens={t.tokens || []} /></Text>;
+        if (t.type === 'image') return <Image key={i} src={t.href} style={{ width: 40, height: 40 }} />;
         if (t.type === 'text' || t.type === 'escape') {
           if (t.tokens && t.tokens.length > 0) return <MarkdownText key={i} tokens={t.tokens} />;
           const regex = emojiRegex();
@@ -152,7 +154,7 @@ const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
                 <View key={idx} style={styles.listItem}>
                   <Text style={styles.bullet}>{t.ordered ? `${idx + 1}.` : '•'}</Text>
                   <View style={styles.listContent}>
-                    <Text style={styles.p}><MarkdownText tokens={item.tokens || []} /></Text>
+                    <Text style={styles.listP}><MarkdownText tokens={item.tokens || []} /></Text>
                   </View>
                 </View>
               ))}
