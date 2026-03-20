@@ -139,7 +139,13 @@ const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
             const hStyle = t.depth === 1 ? styles.h1 : t.depth === 2 ? styles.h2 : styles.h3;
             return <Text key={i} style={hStyle}><MarkdownText tokens={t.tokens || []} /></Text>;
           }
-          case 'paragraph': return <View key={i}><Text style={styles.p}><MarkdownText tokens={t.tokens || []} /></Text></View>;
+          case 'paragraph': {
+            const isSingleImage = t.tokens?.length === 1 && t.tokens[0].type === 'image';
+            if (isSingleImage) {
+              return <Image key={i} src={t.tokens[0].href} style={{ maxWidth: '100%', alignSelf: 'center', marginBottom: 12, borderRadius: 4 }} />;
+            }
+            return <View key={i}><Text style={styles.p}><MarkdownText tokens={t.tokens || []} /></Text></View>;
+          }
           case 'blockquote': return (
             <View key={i} style={styles.blockquote}>
               {t.tokens?.map((bt: any, j: number) => {
