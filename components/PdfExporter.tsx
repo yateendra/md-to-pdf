@@ -36,7 +36,7 @@ export async function exportToPdf(markdown: string, filename = "document.pdf") {
   const pageSize: [number, number] = [595.28, 841.89];
   let page = pdfDoc.addPage(pageSize);
   const { width, height } = page.getSize();
-  const margin = 50;
+  const margin = 28;
   let y = height - margin;
   const contentWidth = width - (margin * 2);
 
