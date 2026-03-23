@@ -130,10 +130,10 @@ const MarkdownText = ({ tokens }: { tokens: any[] }) => {
   );
 };
 
-const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
-  <Document title="Exported Document">
-    <Page size="A4" style={styles.page}>
-      {tokens.map((t: any, i) => {
+const MarkdownBlocks = ({ tokens, inList = false }: { tokens: any[]; inList?: boolean }) => {
+  return (
+    <>
+      {tokens.map((t: any, i: number) => {
         switch (t.type) {
           case 'heading': {
             const hStyle = t.depth === 1 ? styles.h1 : t.depth === 2 ? styles.h2 : styles.h3;
@@ -144,23 +144,23 @@ const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
             if (isSingleImage) {
               return <Image key={i} src={t.tokens[0].href} style={{ maxWidth: '100%', alignSelf: 'center', marginBottom: 12, borderRadius: 4 }} />;
             }
-            return <View key={i}><Text style={styles.p}><MarkdownText tokens={t.tokens || []} /></Text></View>;
+            return <View key={i}><Text style={inList ? styles.listP : styles.p}><MarkdownText tokens={t.tokens || []} /></Text></View>;
+          }
+          case 'text': {
+            return <View key={i}><Text style={inList ? styles.listP : styles.p}><MarkdownText tokens={[t]} /></Text></View>;
           }
           case 'blockquote': return (
             <View key={i} style={styles.blockquote}>
-              {t.tokens?.map((bt: any, j: number) => {
-                if (bt.type === 'paragraph') return <Text key={j} style={styles.p}><MarkdownText tokens={bt.tokens || []} /></Text>;
-                return null;
-              })}
+              <MarkdownBlocks tokens={t.tokens || []} />
             </View>
           );
           case 'list': return (
             <View key={i} style={styles.list}>
               {t.items.map((item: any, idx: number) => (
                 <View key={idx} style={styles.listItem}>
-                  <Text style={styles.bullet}>{t.ordered ? `${idx + 1}.` : '•'}</Text>
+                  <Text style={styles.bullet}>{t.ordered ? `${t.start !== undefined ? t.start + idx : idx + 1}.` : '•'}</Text>
                   <View style={styles.listContent}>
-                    <Text style={styles.listP}><MarkdownText tokens={item.tokens || []} /></Text>
+                    <MarkdownBlocks tokens={item.tokens || []} inList={true} />
                   </View>
                 </View>
               ))}
@@ -200,6 +200,14 @@ const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
           default: return null;
         }
       })}
+    </>
+  );
+};
+
+const MarkdownDoc = ({ tokens }: { tokens: any[] }) => (
+  <Document title="Exported Document">
+    <Page size="A4" style={styles.page}>
+      <MarkdownBlocks tokens={tokens} />
       <Text style={styles.footer} render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} fixed />
     </Page>
   </Document>

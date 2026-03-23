@@ -1,7 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { marked } from "marked";
+import TurndownService from "turndown";
+// @ts-ignore
+import { gfm } from "turndown-plugin-gfm";
+
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced'
+});
+turndownService.use(gfm);
 
 const SAMPLE = `# Professional Document Export
 
@@ -27,14 +36,34 @@ export default function MarkdownEditor() {
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [previewHtml, setPreviewHtml] = useState("");
+  const [isPreviewFocused, setIsPreviewFocused] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  const handlePreviewInput = (e: React.FormEvent<HTMLDivElement>) => {
+    try {
+      const newMarkdown = turndownService.turndown(e.currentTarget.innerHTML);
+      // Update markdown state immediately for real-time sync with the editor
+      if (newMarkdown !== markdown) {
+        setMarkdown(newMarkdown);
+      }
+    } catch (err) {
+      console.error("Failed to convert HTML to Markdown", err);
+    }
+  };
 
   useEffect(() => {
     const render = async () => {
-      const html = await marked.parse(markdown);
-      setPreviewHtml(html);
+      // Only re-render the HTML if the preview pane is NOT currently focused.
+      // This prevents the cursor from jumping while typing in the preview pane.
+      if (!isPreviewFocused && previewRef.current) {
+        const html = await marked.parse(markdown);
+        if (previewRef.current.innerHTML !== html) {
+          previewRef.current.innerHTML = html;
+        }
+      }
     };
     render();
-  }, [markdown]);
+  }, [markdown, isPreviewFocused]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -123,8 +152,14 @@ export default function MarkdownEditor() {
             </button>
           </div>
 
-          <div className={`w-full h-[calc(100vh-250px)] min-h-[500px] p-8 overflow-y-auto border-2 border-slate-200 rounded-2xl bg-white shadow-sm pdf-preview ${view === "edit" ? "hidden lg:block" : "block"}`}
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          <div 
+            ref={previewRef}
+            className={`w-full h-[calc(100vh-250px)] min-h-[500px] p-8 overflow-y-auto border-2 border-slate-200 rounded-2xl bg-white shadow-sm pdf-preview outline-none ${view === "edit" ? "hidden lg:block" : "block"}`}
+            contentEditable={true}
+            suppressContentEditableWarning={true}
+            onFocus={() => setIsPreviewFocused(true)}
+            onBlur={() => setIsPreviewFocused(false)}
+            onInput={handlePreviewInput}
           />
         </div>
 
